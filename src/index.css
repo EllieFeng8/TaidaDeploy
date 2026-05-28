@@ -1,0 +1,75 @@
+@import url('https://fonts.googleapis.com/css2?family=Inter:ital,wght@0,100..900;1,100..900&family=JetBrains+Mono:ital,wght@0,100..800;1,100..800&display=swap');
+@import "tailwindcss";
+
+@theme {
+  --font-sans: "Inter", ui-sans-serif, system-ui, sans-serif;
+  --font-mono: "JetBrains Mono", ui-monospace, SFMono-Regular, monospace;
+  
+  /* DevOps Palette corresponding to M3 theme specs provided in the prompt */
+  --color-secondary-container: #d0e1fb;
+  --color-on-primary: #ffffff;
+  --color-on-surface: #191c1e;
+  --color-on-primary-fixed-variant: #004494;
+  --color-inverse-primary: #adc6ff;
+  --color-on-tertiary: #ffffff;
+  --color-surface-tint: #005ac2;
+  --color-on-secondary-fixed-variant: #38485d;
+  --color-on-tertiary-container: #fffbff;
+  --color-primary-fixed-dim: #adc6ff;
+  --color-on-secondary-fixed: #0b1c30;
+  --color-secondary-fixed: #d3e4fe;
+  --color-inverse-on-surface: #eff1f3;
+  --color-inverse-surface: #2d3133;
+  --color-primary-fixed: #d8e2ff;
+  --color-on-surface-variant: #424753;
+  --color-background: #f7f9fb;
+  --color-tertiary-fixed: #ffdcc6;
+  --color-on-primary-fixed: #001a41;
+  --color-on-secondary: #ffffff;
+  --color-surface-container-low: #f2f4f6;
+  --color-on-primary-container: #fefcff;
+  --color-surface-container: #eceef0;
+  --color-tertiary-fixed-dim: #ffb784;
+  --color-on-background: #191c1e;
+  --color-surface-variant: #e0e3e5;
+  --color-primary: #0058bd;
+  --color-outline: #727785;
+  --color-surface-container-lowest: #ffffff;
+  --color-surface-bright: #f7f9fb;
+  --color-tertiary: #914800;
+  --color-secondary-fixed-dim: #b7c8e1;
+  --color-primary-container: #2071e3;
+  --color-outline-variant: #c2c6d6;
+  --color-surface-container-highest: #e0e3e5;
+  --color-surface: #f7f9fb;
+  --color-tertiary-container: #b65c00;
+  --color-error: #ba1a1a;
+  --color-on-tertiary-fixed: #301400;
+  --color-on-secondary-container: #54647a;
+  --color-surface-dim: #d8dadc;
+  --color-on-error-container: #93000a;
+  --color-secondary: #505f76;
+  --color-surface-container-high: #e6e8ea;
+  --color-on-error: #ffffff;
+  --color-on-tertiary-fixed-variant: #713700;
+  --color-error-container: #ffdad6;
+}
+
+/* Base style enhancements */
+body {
+  font-family: var(--font-sans);
+  background-color: var(--color-background);
+  color: var(--color-on-surface);
+  -webkit-font-smoothing: antialiased;
+}
+
+.shimmer {
+  background: linear-gradient(90deg, transparent, rgba(255,255,255,0.4), transparent);
+  background-size: 200% 100%;
+  animation: shimmer-animation 2.5s infinite;
+}
+
+@keyframes shimmer-animation {
+  0% { background-position: -200% 0; }
+  100% { background-position: 200% 0; }
+}

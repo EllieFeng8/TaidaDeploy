@@ -1,0 +1,6 @@
+{
+  "name": "DevOps Admin",
+  "description": "版本部屬中心 - DevOps 模組管理與部署監控平台",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
