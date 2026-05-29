@@ -7,8 +7,8 @@ export function Header({ searchQuery, setSearchQuery, title }) {
   const [showHelp, setShowHelp] = useState(false);
   
   const [notifications, setNotifications] = useState([
-    { id: '1', title: '後臺主程式 v1.8.4 部署作業已觸發', time: '剛剛', read: false },
-    { id: '2', title: '系統主程式 v2.1.0 已完成部署', time: '10 分鐘前', read: false },
+    { id: '1', title: 'UI_HTML v1.8.4 部署作業已觸發', time: '剛剛', read: false },
+    { id: '2', title: 'QT主程式 v2.1.0 已完成部署', time: '10 分鐘前', read: false },
     { id: '3', title: '檢測到 1 個模組有可用更新', time: '1 小時前', read: true },
   ]);
 

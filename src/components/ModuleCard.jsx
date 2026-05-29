@@ -1,7 +1,14 @@
 import React from 'react';
 import { Upload, Terminal, Network, LayoutGrid, Database, Server, Clock, AlertTriangle } from 'lucide-react';
 
-export const ModuleCard = ({ module, onUploadClick }) => {
+export const ModuleCard = ({
+  module,
+  onUploadClick,
+  isCreatingTask = false,
+  onQtStart,
+  onQtStop,
+  isQtActionLoading = false
+}) => {
   // Map string iconName to Lucide components
   const getIcon = (name) => {
     switch (name) {
@@ -120,17 +127,43 @@ export const ModuleCard = ({ module, onUploadClick }) => {
         </div>
       </div>
 
-      {/* Button footer */}
-      <button
-        onClick={() => onUploadClick(module.id)}
-        disabled={module.status === 'deploying'}
-        className={`w-full py-2.5 border border-blue-600 text-blue-600 hover:bg-blue-600 hover:text-white rounded-lg font-sans text-xs font-semibold tracking-wide transition-all flex items-center justify-center gap-1.5 cursor-pointer hover:shadow-sm hover:shadow-blue-50 focus:outline-none focus:ring-2 focus:ring-blue-600/30 ${
-          module.status === 'deploying' ? 'opacity-50 cursor-not-allowed border-slate-200 text-slate-400 hover:bg-transparent hover:text-slate-400' : ''
-        }`}
-      >
-        <Upload className="w-3.5 h-3.5" />
-        上傳新版本
-      </button>
+      <div className="space-y-2">
+        {module.id === 'QT_APP' && (
+          <div className="grid grid-cols-2 gap-2">
+            <button
+              type="button"
+              onClick={() => onQtStart?.(module)}
+              disabled={!module.deployId || isQtActionLoading}
+              className={`py-2 border border-slate-300 text-slate-700 rounded-lg text-xs font-semibold transition-colors ${
+                !module.deployId || isQtActionLoading ? 'opacity-50 cursor-not-allowed' : 'hover:bg-slate-50 cursor-pointer'
+              }`}
+            >
+              啟動 QT
+            </button>
+            <button
+              type="button"
+              onClick={() => onQtStop?.(module)}
+              disabled={!module.deployId || isQtActionLoading}
+              className={`py-2 border border-slate-300 text-slate-700 rounded-lg text-xs font-semibold transition-colors ${
+                !module.deployId || isQtActionLoading ? 'opacity-50 cursor-not-allowed' : 'hover:bg-slate-50 cursor-pointer'
+              }`}
+            >
+              關閉 QT
+            </button>
+          </div>
+        )}
+
+        <button
+          onClick={() => onUploadClick(module.id)}
+          disabled={module.status === 'deploying' || isCreatingTask}
+          className={`w-full py-2.5 border border-blue-600 text-blue-600 hover:bg-blue-600 hover:text-white rounded-lg font-sans text-xs font-semibold tracking-wide transition-all flex items-center justify-center gap-1.5 cursor-pointer hover:shadow-sm hover:shadow-blue-50 focus:outline-none focus:ring-2 focus:ring-blue-600/30 ${
+            module.status === 'deploying' || isCreatingTask ? 'opacity-50 cursor-not-allowed border-slate-200 text-slate-400 hover:bg-transparent hover:text-slate-400' : ''
+          }`}
+        >
+          <Upload className="w-3.5 h-3.5" />
+          {isCreatingTask ? '建立任務中' : '上傳新版本'}
+        </button>
+      </div>
     </div>
   );
 }

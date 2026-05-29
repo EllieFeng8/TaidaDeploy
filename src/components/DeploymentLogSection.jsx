@@ -2,7 +2,7 @@ import { useState } from 'react';
 import { motion, AnimatePresence } from 'motion/react';
 import { CheckCircle2, RefreshCw, XCircle, ChevronDown, ChevronUp, Terminal, Filter } from 'lucide-react';
 
-export function DeploymentLogSection({ logs, onViewAllClick, filterQuery = '', isFullHistoryView = false }) {
+export function DeploymentLogSection({ logs, onViewAllClick, filterQuery = '', isFullHistoryView = false, onToggleLog }) {
   const [expandedLogId, setExpandedLogId] = useState(null);
   const [statusFilter, setStatusFilter] = useState('all');
   const [moduleFilter, setModuleFilter] = useState('all');
@@ -115,9 +115,9 @@ export function DeploymentLogSection({ logs, onViewAllClick, filterQuery = '', i
               className="bg-white border border-slate-200 rounded-md text-xs px-2.5 py-1.5 focus:outline-none focus:ring-1 focus:ring-blue-600 text-slate-700 cursor-pointer"
             >
               <option value="all">所有模組</option>
-              <option value="CORE">CORE (系統主程式)</option>
-              <option value="API">API (後臺主程式)</option>
-              <option value="FRONTEND">FRONTEND (後臺介面)</option>
+              <option value="QT_APP">QT_APP (QT主程式)</option>
+              <option value="HTML">HTML (UI_HTML)</option>
+              <option value="BACKEND">BACKEND (BACKEND_JAR)</option>
               <option value="DATABASE">DATABASE (資料庫儲存)</option>
             </select>
           </div>
@@ -153,7 +153,13 @@ export function DeploymentLogSection({ logs, onViewAllClick, filterQuery = '', i
               >
                 {/* Collapsible Trigger block */}
                 <button
-                  onClick={() => toggleLogDetails(log.id)}
+                  onClick={() => {
+                    const willExpand = expandedLogId !== log.id;
+                    toggleLogDetails(log.id);
+                    if (willExpand && onToggleLog) {
+                      onToggleLog(log);
+                    }
+                  }}
                   className="w-full flex items-center justify-between p-4 cursor-pointer hover:bg-slate-50/70 text-left transition-colors font-sans"
                 >
                   <div className="flex items-center gap-4 min-w-0">

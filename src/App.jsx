@@ -1,439 +1,512 @@
-import { useState, useEffect } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { Download, RefreshCw } from 'lucide-react';
 import { Sidebar } from './components/Sidebar';
 import { Header } from './components/Header';
 import { ModuleCard } from './components/ModuleCard';
-import { ServerStatsSection } from './components/ServerStatsSection';
 import { DeploymentLogSection } from './components/DeploymentLogSection';
 import { UploadModal } from './components/UploadModal';
 import { Toast } from './components/Toast';
-import { Download, RefreshCw } from 'lucide-react';
+import {
+  createDeployTask,
+  getDeployConsole,
+  getRuntimeVersions,
+  getVersionByDeployId,
+  listDeployLogs,
+  listVersions,
+  startDeploy,
+  startQtApp,
+  stopQtApp,
+} from './api/deployApi';
 
-// Pre-packaged realistic deployment logs
-const INITIAL_LOGS = [
-  {
-    id: 'log_api_current',
-    moduleId: 'api',
-    moduleName: '後臺主程式',
-    moduleTag: 'API',
-    version: 'v1.8.4',
-    operator: 'Auto-CI',
-    timestamp: '2023/10/24 15:12',
-    status: '進行中',
-    details: [
-      '[15:12:01] INFO  Auto-CI trigger received for branch "release/v1.8.4"',
-      '[15:12:05] INFO  Validating commit checksum SHA: aa345fb21c...',
-      '[15:12:12] INFO  Preparing secure Docker runtime sandbox...',
-      '[15:12:20] INFO  Downloading external dependencies with npm ci...',
-      '[15:12:35] INFO  Compiling fast TypeScript modules to target ESNext...',
-      '[15:12:48] INFO  Injecting database configuration endpoints URL...'
-    ]
-  },
-  {
-    id: 'log_core_success',
-    moduleId: 'core',
-    moduleName: '系統主程式',
-    moduleTag: 'CORE',
-    version: 'v2.1.0',
-    operator: 'Admin',
-    timestamp: '2023/10/24 14:30',
-    status: '成功',
-    details: [
-      '[14:28:01] INFO  Manual dashboard artifact upload: core-v2.1.0.tar.gz',
-      '[14:28:05] INFO  Verifying checksum signature code: SUCCESS',
-      '[14:28:15] INFO  Launching production environment environment tests...',
-      '[14:28:45] SUCCESS Automated pipeline: 412 system tests compiled and successful.',
-      '[14:29:12] INFO  Bundling source package to production image code...',
-      '[14:29:45] INFO  Tearing down redundant nodes. Routing traffic to container core-02...',
-      '[14:30:00] SUCCESS Rolling health check satisfied (HTTP 200). v2.1.0 in stable state!'
-    ]
-  },
-  {
-    id: 'log_core_fail',
-    moduleId: 'core_legacy',
-    moduleName: '系統主程式',
-    moduleTag: 'CORE',
-    version: 'v2.0.9',
-    operator: 'Admin',
-    timestamp: '2023/10/24 10:15',
-    status: '失敗',
-    details: [
-      '[10:12:15] INFO  Manual artifact upload: core-v2.0.9.war',
-      '[10:12:30] INFO  Unpacking application package content...',
-      '[10:13:02] ERROR [SyntaxError] Unexpected EOF inside config.ts at line 52:12',
-      '[10:13:05] ERROR Compiler finished with non-zero exit status -1. Compilation aborted.',
-      '[10:13:45] WARNING Rolling back application cluster configurations immediately...',
-      '[10:14:12] SUCCESS Microservice restore: legacy image core-v2.0.8 operational.',
-      '[10:15:00] FATAL Dashboard flagged this upload execution as FAILED.'
-    ]
-  }
+const MODULE_CATALOG = [
+  { id: 'QT_APP', name: 'QT主程式', tag: 'QT_APP', apiType: 'QT_APP', iconName: 'terminal' },
+  { id: 'HTML', name: 'UI_HTML', tag: 'HTML', apiType: 'UI_HTML', iconName: 'settings_ethernet' },
+  { id: 'BACKEND', name: 'BACKEND_JAR', tag: 'BACKEND', apiType: 'BACKEND_JAR', iconName: 'dashboard_customize' },
 ];
 
-// Helper to compile terminal logs dynamically
-function generateLogLines(
-  name,
-  tag,
-  progress,
-  version,
-  fileName,
-  isSuccess = true
-) {
-  const timestamp = new Date().toLocaleTimeString('zh-TW', { hour12: false });
-  const lines = [
-    `[${timestamp}] INFO  Sandbox container successfully starting compilation for: ${name} (${tag})`,
-    `[${timestamp}] INFO  Reading configuration from uploaded target package: ${fileName}`,
-    `[${timestamp}] INFO  Running SHA-256 signature verification... OK.`,
-  ];
+const API_LOG_TYPES = ['QT_APP', 'UI_HTML', 'BACKEND_JAR'];
 
-  if (progress >= 20) {
-    lines.push(
-      `[${timestamp}] INFO  Initializing compiler engine under Node 19-prod sandbox.`,
-      `[${timestamp}] INFO  Parsing and reading modular import lines...`
-    );
-  }
-  if (progress >= 50) {
-    lines.push(
-      `[${timestamp}] INFO  Syntax structural validation complete. Translating components to ES2022...`,
-      `[${timestamp}] SUCCESS Minification accomplished. Code Bundle size: 1.62 MB (Compressed: 341 KB)`
-    );
-  }
-  if (progress >= 75) {
-    lines.push(
-      `[${timestamp}] INFO  Mapping cluster ingress bounds... Assigning static reverse proxy port 3000.`,
-      `[${timestamp}] INFO  Triggering automatic pod upgrade: taking down stale containers...`
-    );
-  }
-  if (progress >= 100) {
-    if (isSuccess) {
-      lines.push(
-        `[${timestamp}] SUCCESS DevOps Cluster deployment updated. Current version is now ${version}.`,
-        `[${timestamp}] SUCCESS Container rolling microservices healthy. Ingress traffic has been switched.`
-      );
-    } else {
-      lines.push(
-        `[${timestamp}] ERROR Fatal compiler issue: ParseException in ModuleController.ts at line 42:15.`,
-        `[${timestamp}] ERROR Aborting pipeline. Rolling back deployment cluster to stable configuration legacy image...`,
-        `[${timestamp}] SUCCESS Core cluster fallback accomplished. Legacy safe build operational.`
-      );
+function formatTimestamp(value) {
+  if (!value) return '未提供時間';
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return value;
+  return `${date.toLocaleDateString('zh-TW')} ${date.toLocaleTimeString('zh-TW', {
+    hour12: false,
+    hour: '2-digit',
+    minute: '2-digit',
+    second: '2-digit',
+  })}`;
+}
+
+function getModuleById(moduleId) {
+  return MODULE_CATALOG.find((module) => module.id === moduleId);
+}
+
+function getModuleByApiType(apiType) {
+  return MODULE_CATALOG.find((module) => module.apiType === apiType);
+}
+
+function normalizeConsoleLines(payload) {
+  const items = Array.isArray(payload) ? payload : [];
+  const lines = items.map((item, index) => ({
+    sequence: typeof item.sequence === 'number' ? item.sequence : index + 1,
+    text: item.line || item.message || item.content || '',
+    timestamp: item.timestamp || item.createdTime || '',
+  }));
+  const maxSequence = lines.reduce((max, item) => Math.max(max, item.sequence), 0);
+  return {
+    lines,
+    details: lines.map((item) => `[${formatTimestamp(item.timestamp)}] ${item.text}`),
+    nextSequence: maxSequence > 0 ? maxSequence + 1 : 1,
+  };
+}
+
+function normalizeLogSummaries(type, payload) {
+  const moduleMeta = getModuleByApiType(type);
+  const items = Array.isArray(payload) ? payload : [];
+
+  return items.map((item) => ({
+    id: item.deployId || `${type}-${item.fileName || item.createdTime || Math.random()}`,
+    deployId: item.deployId || '',
+    moduleId: moduleMeta?.id || type,
+    moduleName: moduleMeta?.name || type,
+    moduleTag: moduleMeta?.tag || type,
+    version: item.version || item.fileName || item.deployId || '待偵測',
+    operator: 'Deploy API',
+    timestamp: formatTimestamp(item.createdTime || item.detectedAt),
+    createdAt: item.createdTime || item.detectedAt || '',
+    status: '成功',
+    details: [],
+    nextSequence: 1,
+  }));
+}
+
+function normalizeVersionEntries(payload) {
+  return Array.isArray(payload) ? payload : [];
+}
+
+function normalizeRuntimeMap(payload) {
+  return {
+    QT_APP: payload?.qtApp || null,
+    BACKEND_JAR: payload?.backendJar || null,
+  };
+}
+
+function buildModules(previousModules, versionEntries, runtimeMap, logs, activeStreams) {
+  return MODULE_CATALOG.map((moduleMeta) => {
+    const previous = previousModules.find((module) => module.id === moduleMeta.id) || {};
+    const latestVersion = versionEntries.find((item) => item.type === moduleMeta.apiType);
+    const latestLog = logs.find((log) => log.moduleId === moduleMeta.id);
+    const runtimeEntry = runtimeMap[moduleMeta.apiType];
+    const isDeploying = Object.values(activeStreams).some((stream) => stream.moduleId === moduleMeta.id);
+
+    let status = 'queued';
+    let progress = 0;
+    let statusMessage = '尚未偵測到部署資訊';
+
+    if (isDeploying) {
+      status = 'deploying';
+      progress = 45;
+      statusMessage = '部署進行中，持續同步 console';
+    } else if (latestLog?.status === '失敗') {
+      status = 'failed';
+      progress = 100;
+      statusMessage = '最近一次部署失敗';
+    } else if (latestVersion || runtimeEntry?.available || latestLog) {
+      status = 'completed';
+      progress = 100;
+      if (runtimeEntry?.available) {
+        statusMessage = `Runtime 已同步${runtimeEntry.version ? ` (${runtimeEntry.version})` : ''}`;
+      } else if (latestVersion?.version) {
+        statusMessage = `已偵測版本 ${latestVersion.version}`;
+      } else {
+        statusMessage = '已取得部署紀錄';
+      }
     }
-  }
 
-  return lines;
+    return {
+      ...previous,
+      id: moduleMeta.id,
+      name: moduleMeta.name,
+      tag: moduleMeta.tag,
+      apiType: moduleMeta.apiType,
+      iconName: moduleMeta.iconName,
+      version: latestVersion?.version || runtimeEntry?.version || previous.version || '待偵測',
+      deployId: runtimeEntry?.deployId || latestVersion?.deployId || latestLog?.deployId || previous.deployId || '',
+      status,
+      progress,
+      statusMessage,
+      runtimeAvailable: Boolean(runtimeEntry?.available),
+      runtimeError: runtimeEntry?.error || '',
+    };
+  });
 }
 
 export default function App() {
   const [searchQuery, setSearchQuery] = useState('');
-
-  // Sandbox DevOps States
-  const [modules, setModules] = useState(() => {
-    const saved = localStorage.getItem('devops_modules');
-    if (saved) return JSON.parse(saved);
-    return [
-      {
-        id: 'core',
-        name: '系統主程式',
-        tag: 'CORE',
-        version: 'v2.1.0',
-        status: 'completed',
-        progress: 100,
-        statusMessage: '已部署完成',
-        iconName: 'terminal'
-      },
-      {
-        id: 'api',
-        name: '後臺主程式',
-        tag: 'API',
-        version: 'v1.8.4',
-        status: 'deploying',
-        progress: 80,
-        statusMessage: '編譯解析代碼 (80%)',
-        timeRemaining: 45,
-        iconName: 'settings_ethernet'
-      },
-      {
-        id: 'frontend',
-        name: '後臺介面',
-        tag: 'FRONTEND',
-        version: 'v1.2.0-beta',
-        status: 'queued',
-        progress: 45,
-        statusMessage: '等待編譯完成',
-        iconName: 'dashboard_customize'
-      }
-    ];
-  });
-
-  const [logs, setLogs] = useState(() => {
-    const saved = localStorage.getItem('devops_logs');
-    if (saved) return JSON.parse(saved);
-    return INITIAL_LOGS;
-  });
-
-  const [stats, setStats] = useState({
-    monthlyDeployCount: 1248,
-    cpuUsage: 24,
-    ramUsage: 68
-  });
-
-  // Settings sandbox controls
-  const [settings, setSettings] = useState(() => {
-    const saved = localStorage.getItem('devops_settings');
-    if (saved) return JSON.parse(saved);
-    return {
-      buildSpeed: 'normal',
-      errorRate: 10, // 10%
-      autoCiMins: 45, // every 45s
-      logRetention: 15
-    };
-  });
-
-  // Dialog / Upload triggers
+  const [modules, setModules] = useState(() =>
+    MODULE_CATALOG.map((module) => ({
+      ...module,
+      version: '待偵測',
+      progress: 0,
+      status: 'queued',
+      statusMessage: '等待與部署伺服器同步',
+      deployId: '',
+    }))
+  );
+  const [logs, setLogs] = useState([]);
   const [isUploadOpen, setIsUploadOpen] = useState(false);
   const [uploadTargetId, setUploadTargetId] = useState('');
-
-  // Notification Toast state
+  const [creatingTaskModuleId, setCreatingTaskModuleId] = useState('');
+  const [activeDeployTask, setActiveDeployTask] = useState(null);
+  const [isSubmittingDeploy, setIsSubmittingDeploy] = useState(false);
+  const [isRefreshing, setIsRefreshing] = useState(false);
+  const [qtActionModuleId, setQtActionModuleId] = useState('');
   const [toast, setToast] = useState({
-    visible: true,
-    title: '執行完畢',
-    message: '系統主程式上傳完成',
-    type: 'success'
+    visible: false,
+    title: '',
+    message: '',
+    type: 'success',
   });
+  const [activeStreams, setActiveStreams] = useState({});
 
-  // Save states to local storage
-  useEffect(() => {
-    localStorage.setItem('devops_modules', JSON.stringify(modules));
-  }, [modules]);
+  const logsRef = useRef(logs);
+  const modulesRef = useRef(modules);
+  const activeStreamsRef = useRef(activeStreams);
 
   useEffect(() => {
-    localStorage.setItem('devops_logs', JSON.stringify(logs));
+    logsRef.current = logs;
   }, [logs]);
 
   useEffect(() => {
-    localStorage.setItem('devops_settings', JSON.stringify(settings));
-  }, [settings]);
+    modulesRef.current = modules;
+  }, [modules]);
 
-  // Main active deployment scheduler (runs ticks every 1 second to update compiled indicators)
   useEffect(() => {
-    const timer = setInterval(() => {
-      setModules((prevModules) => {
-        let stateChanged = false;
+    activeStreamsRef.current = activeStreams;
+  }, [activeStreams]);
 
-        const next = prevModules.map((m) => {
-          if (m.status !== 'deploying') return m;
-          stateChanged = true;
+  const showToast = useCallback((title, message, type = 'success') => {
+    setToast({
+      visible: true,
+      title,
+      message,
+      type,
+    });
+  }, []);
 
-          // Compute progress additions by speed settings
-          let progressAdd = 8;
-          let timeCountDecrease = 2;
-          
-          if (settings.buildSpeed === 'fast') {
-            progressAdd = 20;
-            timeCountDecrease = 4;
-          } else if (settings.buildSpeed === 'thorough') {
-            progressAdd = 3;
-            timeCountDecrease = 1;
-          }
+  const refreshDashboard = useCallback(async (showLoading = true) => {
+    if (showLoading) {
+      setIsRefreshing(true);
+    }
 
-          const calculatedProgress = Math.min(m.progress + progressAdd, 100);
-          const calculatedTimeRemaining = Math.max((m.timeRemaining || 10) - timeCountDecrease, 0);
+    try {
+      const [versionsPayload, runtimePayload, ...logPayloads] = await Promise.all([
+        listVersions(),
+        getRuntimeVersions(),
+        ...API_LOG_TYPES.map((type) => listDeployLogs(type).catch(() => [])),
+      ]);
 
-          if (calculatedProgress >= 100) {
-            // Deploy finished! Compares against simulated Error Rate to see if it qualifies
-            const rollProbability = Math.random() * 100;
-            const isSucc = rollProbability >= settings.errorRate;
+      const versionEntries = normalizeVersionEntries(versionsPayload).sort(
+        (a, b) => new Date(b.detectedAt || 0).getTime() - new Date(a.detectedAt || 0).getTime()
+      );
+      const runtimeMap = normalizeRuntimeMap(runtimePayload);
 
-            // Update terminal log status to completed or failed
-            setLogs((prevLogs) => {
-              return prevLogs.map((log) => {
-                if (log.moduleId === m.id && log.status === '進行中') {
-                  const finalLines = generateLogLines(
-                    m.name,
-                    m.tag,
-                    100,
-                    m.version,
-                    'build-package-archive.zip',
-                    isSucc
-                  );
-                  return {
-                    ...log,
-                    status: isSucc ? '成功' : '失敗',
-                    details: finalLines
-                  };
-                }
-                return log;
-              });
-            });
+      const remoteLogs = API_LOG_TYPES.flatMap((type, index) => normalizeLogSummaries(type, logPayloads[index]))
+        .sort((a, b) => new Date(b.createdAt || 0).getTime() - new Date(a.createdAt || 0).getTime());
 
-            // Trigger complete/fail toast
-            setToast({
-              visible: true,
-              title: isSucc ? '執行完畢' : '部屬異常',
-              message: isSucc ? `${m.name} 最新版本 ${m.version} 部署完成` : `${m.name} 宣告編譯報錯`,
-              type: isSucc ? 'success' : 'error'
-            });
-
-            // Add success stats count
-            if (isSucc) {
-              setStats(prev => ({ ...prev, monthlyDeployCount: prev.monthlyDeployCount + 1 }));
-            }
-
-            return {
-              ...m,
-              progress: isSucc ? 100 : 70,
-              status: isSucc ? 'completed' : 'failed',
-              statusMessage: isSucc ? '已部署完成' : '部署失敗：編譯代碼報警',
-              timeRemaining: undefined
-            };
-          }
-
-          // In-progress: Continuously update active log lines in background log inspector
-          setLogs((prevLogs) => {
-            return prevLogs.map((log) => {
-              if (log.moduleId === m.id && log.status === '進行中') {
-                return {
-                  ...log,
-                  details: generateLogLines(
-                    m.name,
-                    m.tag,
-                    calculatedProgress,
-                    m.version,
-                    'build-package-archive.zip',
-                    true
-                  )
-                };
-              }
-              return log;
-            });
-          });
-
+      let mergedLogsSnapshot = [];
+      setLogs((previousLogs) => {
+        const previousMap = new Map(previousLogs.map((log) => [log.deployId || log.id, log]));
+        const mergedLogs = remoteLogs.map((log) => {
+          const previous = previousMap.get(log.deployId || log.id);
+          const stream = activeStreamsRef.current[log.deployId];
           return {
-            ...m,
-            progress: calculatedProgress,
-            statusMessage: `編譯解析代碼 (${calculatedProgress}%)`,
-            timeRemaining: calculatedTimeRemaining
+            ...log,
+            details: previous?.details || [],
+            nextSequence: previous?.nextSequence || 1,
+            status: stream ? '進行中' : previous?.status || log.status,
+            version: previous?.version && previous.version !== '待偵測' ? previous.version : log.version,
           };
         });
 
-        return next;
+        const localOnlyLogs = previousLogs.filter(
+          (log) => !mergedLogs.some((remoteLog) => remoteLog.deployId && remoteLog.deployId === log.deployId)
+        );
+
+        mergedLogsSnapshot = [...localOnlyLogs, ...mergedLogs].sort(
+          (a, b) => new Date(b.createdAt || b.timestamp || 0).getTime() - new Date(a.createdAt || a.timestamp || 0).getTime()
+        );
+        return mergedLogsSnapshot;
       });
-    }, 1500);
+
+      setModules((previousModules) =>
+        buildModules(previousModules, versionEntries, runtimeMap, mergedLogsSnapshot, activeStreamsRef.current)
+      );
+    } catch (error) {
+      showToast('同步失敗', error.message || '無法讀取部署伺服器資料', 'error');
+    } finally {
+      if (showLoading) {
+        setIsRefreshing(false);
+      }
+    }
+  }, [showToast]);
+
+  useEffect(() => {
+    refreshDashboard();
+    const timer = setInterval(() => {
+      refreshDashboard(false);
+    }, 15000);
+    return () => clearInterval(timer);
+  }, [refreshDashboard]);
+
+  useEffect(() => {
+    const deployIds = Object.keys(activeStreams);
+    if (deployIds.length === 0) return undefined;
+
+    const timer = setInterval(async () => {
+      const streamEntries = Object.entries(activeStreamsRef.current);
+      if (streamEntries.length === 0) return;
+
+      const results = await Promise.all(
+        streamEntries.map(async ([deployId, stream]) => {
+          try {
+            const payload = await getDeployConsole(deployId, stream.nextSequence);
+            return { deployId, stream, ...normalizeConsoleLines(payload) };
+          } catch (error) {
+            return { deployId, error };
+          }
+        })
+      );
+
+      setLogs((previousLogs) =>
+        previousLogs.map((log) => {
+          const result = results.find((item) => item.deployId === log.deployId);
+          if (!result || result.error || result.details.length === 0) return log;
+          return {
+            ...log,
+            details: [...log.details, ...result.details],
+            nextSequence: result.nextSequence,
+            status: '進行中',
+          };
+        })
+      );
+
+      setActiveStreams((previousStreams) => {
+        const nextStreams = { ...previousStreams };
+
+        results.forEach((result) => {
+          const currentStream = nextStreams[result.deployId];
+          if (!currentStream) return;
+
+          if (result.error) {
+            delete nextStreams[result.deployId];
+            setLogs((previousLogs) =>
+              previousLogs.map((log) =>
+                log.deployId === result.deployId ? { ...log, status: '失敗' } : log
+              )
+            );
+            return;
+          }
+
+          if (result.details.length > 0) {
+            nextStreams[result.deployId] = {
+              ...currentStream,
+              nextSequence: result.nextSequence,
+              idleCount: 0,
+            };
+            return;
+          }
+
+          const idleCount = (currentStream.idleCount || 0) + 1;
+          if (idleCount >= 3) {
+            delete nextStreams[result.deployId];
+            setLogs((previousLogs) =>
+              previousLogs.map((log) =>
+                log.deployId === result.deployId && log.status === '進行中'
+                  ? { ...log, status: '成功' }
+                  : log
+              )
+            );
+          } else {
+            nextStreams[result.deployId] = {
+              ...currentStream,
+              idleCount,
+            };
+          }
+        });
+
+        return nextStreams;
+      });
+
+      await refreshDashboard(false);
+    }, 3000);
 
     return () => clearInterval(timer);
-  }, [settings]);
+  }, [activeStreams, refreshDashboard]);
 
-  // Automated Background Auto-CI Scheduler
-  useEffect(() => {
-    const ciTimer = setInterval(() => {
-      // Pick a non-deploying module to automatically simulate a background trigger
-      const availableModules = modules.filter(m => m.status !== 'deploying');
-      if (availableModules.length === 0) return;
-
-      const randomModule = availableModules[Math.floor(Math.random() * availableModules.length)];
-      
-      // Upgrade semantic patch
-      const parts = randomModule.version.replace('v', '').split('.');
-      let nextVer = randomModule.version + '.1';
-      if (parts.length === 3) {
-        const patchNum = parseInt(parts[2], 10);
-        if (!isNaN(patchNum)) {
-          parts[2] = String(patchNum + 1);
-          nextVer = `v${parts.join('.')}`;
-        }
-      }
-
-      triggerDeploy(randomModule.id, nextVer, 'CI Trigger automatic build', 'auto-ci-pipeline-artifact.zip');
-    }, settings.autoCiMins * 1000);
-
-    return () => clearInterval(ciTimer);
-  }, [modules, settings.autoCiMins]);
-
-  // Handle new manual trigger deployment
-  const triggerDeploy = (moduleId, newVersion, changelog, fileName) => {
-    const moduleItem = modules.find(m => m.id === moduleId);
+  const handleOpenUploadFor = async (moduleId) => {
+    const moduleItem = modulesRef.current.find((module) => module.id === moduleId);
     if (!moduleItem) return;
 
-    // Create a new Deploy Log and put inside deployment log lists, marked "進行中"
-    const timestampStr = new Date().toLocaleDateString('zh-TW') + ' ' + new Date().toLocaleTimeString('zh-TW', { hour12: false, hour: '2-digit', minute: '2-digit' });
-    const newLogId = `log_${Date.now()}`;
-    const newLog = {
-      id: newLogId,
-      moduleId,
-      moduleName: moduleItem.name,
-      moduleTag: moduleItem.tag,
-      version: newVersion,
-      operator: 'Admin',
-      timestamp: timestampStr,
-      status: '進行中',
-      details: generateLogLines(moduleItem.name, moduleItem.tag, 5, newVersion, fileName, true)
-    };
+    setCreatingTaskModuleId(moduleId);
+    try {
+      const task = await createDeployTask(moduleItem.apiType);
+      setActiveDeployTask({
+        deployId: task.deployId,
+        moduleId,
+        type: moduleItem.apiType,
+      });
+      setUploadTargetId(moduleId);
+      setIsUploadOpen(true);
+    } catch (error) {
+      showToast('建立任務失敗', error.message || '無法建立部署任務', 'error');
+    } finally {
+      setCreatingTaskModuleId('');
+    }
+  };
 
-    setLogs(prev => [newLog, ...prev.slice(0, settings.logRetention - 1)]);
+  const handleSubmitDeploy = async ({ moduleId, deployId, type, file, fields }) => {
+    const moduleItem = modulesRef.current.find((module) => module.id === moduleId);
+    if (!moduleItem) {
+      throw new Error('找不到部署模組');
+    }
 
-    // Update targeting state status
-    setModules(prev => prev.map((m) => {
-      if (m.id === moduleId) {
-        return {
-          ...m,
-          version: newVersion,
-          status: 'deploying',
-          progress: 5,
-          statusMessage: '初始化容器編譯 (5%)',
-          timeRemaining: settings.buildSpeed === 'fast' ? 12 : settings.buildSpeed === 'thorough' ? 90 : 45
-        };
+    setIsSubmittingDeploy(true);
+
+    try {
+      await startDeploy(deployId, file, fields);
+
+      const localLog = {
+        id: deployId,
+        deployId,
+        moduleId,
+        moduleName: moduleItem.name,
+        moduleTag: moduleItem.tag,
+        version: deployId,
+        operator: 'Deploy API',
+        timestamp: formatTimestamp(new Date().toISOString()),
+        createdAt: new Date().toISOString(),
+        status: '進行中',
+        details: [],
+        nextSequence: 1,
+      };
+
+      setLogs((previousLogs) => [localLog, ...previousLogs.filter((log) => log.deployId !== deployId)]);
+      setActiveStreams((previousStreams) => ({
+        ...previousStreams,
+        [deployId]: {
+          moduleId,
+          type,
+          nextSequence: 1,
+          idleCount: 0,
+        },
+      }));
+
+      setModules((previousModules) =>
+        previousModules.map((module) =>
+          module.id === moduleId
+            ? {
+                ...module,
+                deployId,
+                status: 'deploying',
+                progress: 35,
+                statusMessage: '已送出部署，等待 console 回傳',
+              }
+            : module
+        )
+      );
+
+      try {
+        const versionInfo = await getVersionByDeployId(deployId);
+        if (versionInfo?.version) {
+          setLogs((previousLogs) =>
+            previousLogs.map((log) =>
+              log.deployId === deployId ? { ...log, version: versionInfo.version } : log
+            )
+          );
+        }
+      } catch (error) {
+        // Some deploy types return 400 before the backend detects version info.
       }
-      return m;
-    }));
 
-    // Alert info
-    setToast({
-      visible: true,
-      title: '部署排程觸發',
-      message: `${moduleItem.name} ${newVersion} 正與編譯隔離區建立連線`,
-      type: 'info'
-    });
+      showToast('部署已啟動', `${moduleItem.name} 任務 ${deployId} 已開始`, 'success');
+      await refreshDashboard(false);
+    } catch (error) {
+      showToast('部署失敗', error.message || '無法啟動部署', 'error');
+      throw error;
+    } finally {
+      setIsSubmittingDeploy(false);
+      setActiveDeployTask(null);
+    }
   };
 
-  const handleOpenUploadFor = (moduleId) => {
-    setUploadTargetId(moduleId);
-    setIsUploadOpen(true);
+  const handleToggleLog = async (log) => {
+    if (!log.deployId) return;
+    try {
+      const payload = await getDeployConsole(log.deployId);
+      const normalized = normalizeConsoleLines(payload);
+      setLogs((previousLogs) =>
+        previousLogs.map((item) =>
+          item.deployId === log.deployId
+            ? {
+                ...item,
+                details: normalized.details,
+                nextSequence: normalized.nextSequence,
+              }
+            : item
+        )
+      );
+    } catch (error) {
+      showToast('讀取 Console 失敗', error.message || `無法讀取 ${log.deployId}`, 'error');
+    }
   };
 
-  const handleOpenGeneralNewVersion = () => {
-    setUploadTargetId('');
-    setIsUploadOpen(true);
+  const handleQtControl = async (module, action) => {
+    if (!module.deployId) {
+      showToast('操作失敗', '目前沒有可操作的 deployId', 'error');
+      return;
+    }
+
+    setQtActionModuleId(module.id);
+    try {
+      const response = action === 'start' ? await startQtApp(module.deployId) : await stopQtApp(module.deployId);
+      showToast(action === 'start' ? 'Qt 已啟動' : 'Qt 已關閉', response.message || module.deployId, 'success');
+      await refreshDashboard(false);
+    } catch (error) {
+      showToast('Qt 操作失敗', error.message || '無法更新 Qt 執行狀態', 'error');
+    } finally {
+      setQtActionModuleId('');
+    }
   };
 
-  // Direct export JSON configurations in audit-ready compliant form
   const exportLogs = () => {
-    const dataStr = 'data:text/json;charset=utf-8,' + encodeURIComponent(JSON.stringify(logs, null, 2));
+    const dataStr = `data:text/json;charset=utf-8,${encodeURIComponent(JSON.stringify(logs, null, 2))}`;
     const downloadAnchor = document.createElement('a');
     downloadAnchor.setAttribute('href', dataStr);
     downloadAnchor.setAttribute('download', `devops_deployment_audit_${new Date().toISOString().split('T')[0]}.json`);
     document.body.appendChild(downloadAnchor);
     downloadAnchor.click();
     downloadAnchor.remove();
-
-    setToast({
-      visible: true,
-      title: '日誌匯出完成',
-      message: '系統已自動封包並下載 JSON 歷史部署日誌',
-      type: 'success'
-    });
+    showToast('日誌匯出完成', '已下載目前部署日誌 JSON', 'success');
   };
+
+  const visibleModules = useMemo(
+    () =>
+      modules.filter(
+        (module) =>
+          module.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
+          module.tag.toLowerCase().includes(searchQuery.toLowerCase())
+      ),
+    [modules, searchQuery]
+  );
 
   return (
     <div className="bg-slate-50 min-h-screen text-slate-800 flex">
-      {/* Structural Sidebar Panel */}
-      <Sidebar
-        onNewVersionClick={handleOpenGeneralNewVersion}
-      />
+      <Sidebar />
 
-      {/* Main Content wrapper */}
       <div className="flex-1 flex flex-col min-h-screen">
-        <Header
-          searchQuery={searchQuery}
-          setSearchQuery={setSearchQuery}
-          title="版本部屬中心"
-        />
+        <Header searchQuery={searchQuery} setSearchQuery={setSearchQuery} title="版本部屬中心" />
 
         <main className="ml-[260px] p-8 flex-1">
           <div className="space-y-8 animate-fade-in">
@@ -442,12 +515,19 @@ export default function App() {
                 <p className="text-[11px] font-mono uppercase tracking-widest text-blue-600 font-bold mb-1">
                   Overview
                 </p>
-                <h3 className="text-3xl font-extrabold tracking-tight text-slate-900">
-                  系統模組狀態
-                </h3>
+                <h3 className="text-3xl font-extrabold tracking-tight text-slate-900">系統模組狀態</h3>
               </div>
               <div className="flex gap-2">
-
+                <button
+                  onClick={() => refreshDashboard()}
+                  disabled={isRefreshing}
+                  className={`flex items-center gap-1.5 px-4 py-2 bg-white border border-slate-200 hover:bg-slate-50 text-slate-700 rounded-lg text-xs font-semibold cursor-pointer transition-colors ${
+                    isRefreshing ? 'opacity-60 cursor-not-allowed' : ''
+                  }`}
+                >
+                  <RefreshCw className={`w-3.5 h-3.5 ${isRefreshing ? 'animate-spin' : ''}`} />
+                  重新整理
+                </button>
                 <button
                   onClick={exportLogs}
                   className="flex items-center gap-1.5 px-4 py-2 bg-slate-200/60 hover:bg-slate-200 text-slate-700 rounded-lg text-xs font-semibold cursor-pointer transition-colors"
@@ -459,49 +539,47 @@ export default function App() {
             </header>
 
             <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-              {modules
-                .filter((m) =>
-                  m.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
-                  m.tag.toLowerCase().includes(searchQuery.toLowerCase())
-                )
-                .map((module) => (
-                  <ModuleCard
-                    key={module.id}
-                    module={module}
-                    onUploadClick={handleOpenUploadFor}
-                  />
-                ))}
+              {visibleModules.map((module) => (
+                <ModuleCard
+                  key={module.id}
+                  module={module}
+                  onUploadClick={handleOpenUploadFor}
+                  isCreatingTask={creatingTaskModuleId === module.id}
+                  onQtStart={(item) => handleQtControl(item, 'start')}
+                  onQtStop={(item) => handleQtControl(item, 'stop')}
+                  isQtActionLoading={qtActionModuleId === module.id}
+                />
+              ))}
             </div>
 
             <section className="grid grid-cols-1 lg:grid-cols-12 gap-6 items-start">
               <div className="lg:col-span-12 flex flex-col">
-                <DeploymentLogSection
-                  logs={logs}
-                  filterQuery={searchQuery}
-                />
+                <DeploymentLogSection logs={logs} filterQuery={searchQuery} onToggleLog={handleToggleLog} />
               </div>
-
             </section>
           </div>
         </main>
       </div>
 
-      {/* Interactive Upload packages drawer */}
       <UploadModal
         isOpen={isUploadOpen}
-        onClose={() => setIsUploadOpen(false)}
+        onClose={() => {
+          setIsUploadOpen(false);
+          setActiveDeployTask(null);
+        }}
         modules={modules}
         initialModuleId={uploadTargetId}
-        onDeploy={triggerDeploy}
+        deployTask={activeDeployTask}
+        onDeploy={handleSubmitDeploy}
+        isSubmitting={isSubmittingDeploy}
       />
 
-      {/* Shared alert popups with standard animation triggers */}
       <Toast
         isVisible={toast.visible}
         title={toast.title}
         message={toast.message}
         type={toast.type}
-        onClose={() => setToast(prev => ({ ...prev, visible: false }))}
+        onClose={() => setToast((previous) => ({ ...previous, visible: false }))}
       />
     </div>
   );
